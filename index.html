@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UTN FRSR - Simulador de Red BT (Movimiento Libre)</title>
+    <style>
+        :root {
+            --bg-main: #02040a;
+            --panel-bg: #050a14;
+            --cyan-glow: #00f0ff;
+            --border-color: #1a2b4c;
+            --text-main: #ffffff;
+            --text-muted: #6b859e;
+        }
+
+        body {
+            font-family: 'Consolas', 'Courier New', monospace;
+            background-color: var(--bg-main);
+            color: var(--text-main);
+            margin: 0;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        #sidebar {
+            width: 400px;
+            background-color: var(--panel-bg);
+            border-right: 1px solid var(--border-color);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            box-shadow: 5px 0 20px rgba(0,0,0,0.8);
+            z-index: 10;
+            overflow-y: auto;
+        }
+
+        h3 { color: var(--cyan-glow); font-size: 1rem; text-transform: uppercase; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin: 0; }
+
+        .control-group { margin-bottom: 10px; }
+        label { display: block; color: var(--text-muted); font-size: 0.8rem; margin-bottom: 5px; font-weight: bold; }
+        
+        select { width: 100%; background: #010205; color: white; border: 1px solid var(--border-color); padding: 8px; border-radius: 4px; font-family: inherit; }
+
+        .btn-action {
+            background: rgba(0, 240, 255, 0.05); color: var(--cyan-glow); border: 1px solid var(--cyan-glow);
+            padding: 12px; text-transform: uppercase; font-weight: bold; cursor: pointer; border-radius: 4px;
+            width: 100%; transition: all 0.2s;
+        }
+        .btn-action:hover { background: var(--cyan-glow); color: #000; box-shadow: 0 0 15px var(--cyan-glow); }
+        .btn-active { background: var(--cyan-glow); color: #000; box-shadow: 0 0 15px var(--cyan-glow); }
+
+        .btn-auto {
+            background: rgba(0, 255, 102, 0.1); color: #00ff66; border-color: #00ff66;
+        }
+        .btn-auto:hover { background: #00ff66; color: #000; box-shadow: 0 0 15px #00ff66; }
+
+        #results-panel {
+            background: rgba(0, 240, 255, 0.03); border-left: 4px solid var(--cyan-glow);
+            padding: 15px; font-size: 0.85rem; line-height: 1.8; border-radius: 4px;
+        }
+
+        /* ESTILOS DE LA NUEVA CAJA MATEMÁTICA */
+        #math-panel {
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px dashed var(--text-muted);
+            padding: 15px;
+            font-size: 0.75rem;
+            line-height: 1.6;
+            color: #a0b2c6;
+            border-radius: 4px;
+            margin-top: 5px;
+        }
+        #math-panel h4 {
+            color: var(--cyan-glow); margin: 0 0 10px 0; font-size: 0.85rem; border-bottom: 1px solid var(--border-color); padding-bottom: 5px;
+        }
+        .math-formula { font-style: italic; color: #fff; margin-bottom: 5px; display: block;}
+
+        .val-highlight { color: var(--cyan-glow); font-weight: bold; font-size: 1rem; }
+
+        #canvas-container { flex-grow: 1; display: flex; justify-content: center; align-items: center; position: relative; overflow: auto; }
+        canvas { background-color: transparent; image-rendering: crisp-edges; cursor: crosshair; }
+
+        #coord-hud {
+            position: absolute; top: 20px; right: 20px; background: rgba(0, 0, 0, 0.85);
+            border: 1px solid var(--cyan-glow); color: var(--cyan-glow);
+            padding: 8px 15px; font-size: 0.9rem; font-weight: bold; border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="sidebar">
+        <h3>Simulador de Red BT</h3>
+        
+        <div class="control-group">
+            <label>CONDUCTOR (Preensamblado Al)</label>
+            <select id="cond" onchange="calcularDatos()">
+                <option value="1.910">35 mm² (R: 1.910 Ω/km)</option>
+                <option value="1.280">50 mm² (R: 1.280 Ω/km)</option>
+                <option value="0.868" selected>70 mm² (R: 0.868 Ω/km)</option>
+                <option value="0.641">95 mm² (R: 0.641 Ω/km)</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label>MÓDULO DE TRANSFORMADOR (Modo Manual)</label>
+            <select id="trafoKVA">
+                <option value="160">160 kVA</option>
+                <option value="250">250 kVA</option>
+                <option value="315" selected>315 kVA</option>
+                <option value="400">400 kVA</option>
+                <option value="500">500 kVA</option>
+                <option value="630">630 kVA</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label>DEMANDA SIMULTÁNEA POR LOTE (kW)</label>
+            <select id="pLote" onchange="calcularDatos()">
+                <option value="3">3 kW (Social)</option>
+                <option value="5" selected>5 kW (Residencial Medio)</option>
+                <option value="8">8 kW (Residencial Alto)</option>
+                <option value="10">10 kW (Premium)</option>
+            </select>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
+            <button id="btn-colocar" class="btn-action" onclick="toggleColocacion()">1. MODO INSTALACIÓN MANUAL</button>
+            <button class="btn-action btn-auto" onclick="optimizarRed()">2. AUTO-OPTIMIZAR RED (IA)</button>
+            <button class="btn-action" style="border-color: #ff2a2a; color: #ff2a2a;" onclick="limpiar()">3. REINICIAR PLANO</button>
+        </div>
+
+        <div id="results-panel" style="margin-top: 10px;">
+            <b>SONDA DE INSPECCIÓN:</b><br>
+            Trafos en servicio: <span id="resTrafos" class="val-highlight" style="color:#ffaa00">0</span><br>
+            Lotes en este ramal: <span id="resLotes" class="val-highlight">0</span><br>
+            Carga transportada: <span id="reskW" class="val-highlight">0 kW</span><br>
+            Distancia al Trafo (L): <span id="resDist" class="val-highlight">0 m</span><br>
+            Caída Tensión (ΔV): <span id="resV" class="val-highlight">0.00 %</span>
+        </div>
+
+        <div id="math-panel">
+            <h4>Fórmulas de Ingeniería Aplicadas</h4>
+            <b>1. Demanda Aparente Loteo (S):</b>
+            <span class="math-formula">S = [ (N_lotes × P_lote) + 18kW ] / cos(φ)</span>
+            <i>* Se asume cos(φ) = 0.90 y 18kW para plaza/alumbrado.</i><br><br>
+
+            <b>2. Corriente de Sonda (I):</b>
+            <span class="math-formula">I_ramal = (P_detectada × 1000) / (√3 × 380V × 0.90)</span>
+            <i>* La sonda detecta qué lotes cruza y suma su potencia.</i><br><br>
+
+            <b>3. Caída de Tensión Real (ΔV):</b>
+            <span class="math-formula">ΔV(%) = [ (√3 × I_ramal × L_km × R_cond × 0.90 × 0.5) / 380V ] × 100</span>
+            <i>* El factor <b>0.5</b> se aplica por Teorema de Momentos Eléctricos para <b>Cargas Uniformemente Distribuidas</b> (las viviendas consumen a lo largo del cable, no concentradas en la punta). L es la distancia Manhattan ortogonal.</i>
+        </div>
+
+    </div>
+
+    <div id="canvas-container">
+        <canvas id="planoCanvas"></canvas>
+        <div id="coord-hud">X: 0.0 m | Y: 0.0 m</div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('planoCanvas');
+        const ctx = canvas.getContext('2d');
+        const coordHud = document.getElementById('coord-hud');
+        const btnColocar = document.getElementById('btn-colocar');
+        
+        const SCALE = 2.0; const STREET = 16; const PADDING = 50; 
+        canvas.width = (440) * SCALE; canvas.height = (432 + STREET*2) * SCALE; 
+
+        const sX = [0, (100+STREET)*SCALE, (200+STREET*2)*SCALE];
+        const sY = [0, (100+STREET)*SCALE, (300+STREET*2)*SCALE];
+
+        let trafos = [];
+        let modoColocar = false;
+        let lotesPuntos = []; 
+
+        function initLoteo() {
+            lotesPuntos = [];
+            let id = 1;
+            function registrarBloque(startX, startY, cols, rows) {
+                for(let r=0; r<rows; r++) {
+                    for(let c=0; c<cols; c++) {
+                        let x = startX + (c * 50 * SCALE) + PADDING;
+                        let y = startY + (r * 20 * SCALE) + STREET*SCALE;
+                        let pilarX = (c === 0 ? x + 3*SCALE : x + 47*SCALE);
+                        let pilarY = y + 10*SCALE;
+                        lotesPuntos.push({x: pilarX, y: pilarY, id: id++});
+                    }
+                }
+            }
+            registrarBloque(sX[0], sY[0], 2, 5); registrarBloque(sX[1], sY[0], 2, 5); registrarBloque(sX[2], sY[0], 2, 5); 
+            registrarBloque(sX[0], sY[1], 2, 10); registrarBloque(sX[2], sY[1], 2, 10); 
+            registrarBloque(sX[0], sY[2], 2, 5); registrarBloque(sX[1], sY[2], 2, 5); registrarBloque(sX[2], sY[2], 2, 5); 
+        }
+
+        function optimizarRed() {
+            const pUnitario = parseFloat(document.getElementById('pLote').value);
+            const rCond = parseFloat(document.getElementById('cond').value); // Ohms/km
+            
+            let pActivaTotal = (100 * pUnitario) + 18; 
+            let sTotal = pActivaTotal / 0.9; 
+            
+            const modulosComerciales = [160, 250, 315, 400, 500, 630];
+            const topologias = {
+                1: [{x: 166, y: 216}],
+                2: [{x: 116, y: 116}, {x: 216, y: 332}],
+                3: [{x: 116, y: 116}, {x: 216, y: 116}, {x: 166, y: 332}],
+                4: [{x: 116, y: 116}, {x: 216, y: 116}, {x: 116, y: 332}, {x: 216, y: 332}],
+                5: [{x: 116, y: 0}, {x: 216, y: 0}, {x: 116, y: 216}, {x: 216, y: 216}, {x: 166, y: 432}]
+            };
+
+            let bestN = 5;
+            let bestKva = 630;
+
+            for(let n=1; n<=5; n++) {
+                let reqKva = sTotal / n;
+                let kvaCandidato = modulosComerciales.find(m => m >= reqKva);
+                if(!kvaCandidato) continue;
+
+                let maxDist = (n === 1) ? 280 : (n === 2) ? 200 : (n === 3) ? 140 : (n === 4) ? 120 : 90;
+                let lotesPorRamaCritica = (100 / n) * 0.5; 
+                
+                // Matemática real de ingeniería UTN con factor 0.5
+                let pRama = lotesPorRamaCritica * pUnitario; 
+                let iRama = (pRama * 1000) / (1.732 * 380 * 0.9); 
+                let dvVoltsEst = 1.732 * iRama * (maxDist / 1000) * rCond * 0.9 * 0.5; 
+                let dvEst = (dvVoltsEst / 380) * 100; 
+
+                if(dvEst <= 5.0) {
+                    bestN = n; bestKva = kvaCandidato; break;
+                }
+            }
+
+            trafos = [];
+            const selec = topologias[bestN] || topologias[5];
+            
+            selec.forEach(c => {
+                trafos.push({ x: c.x * SCALE + PADDING, y: c.y * SCALE + STREET * SCALE, kva: bestKva });
+            });
+
+            document.getElementById('trafoKVA').value = bestKva; 
+            calcularDatos();
+        }
+
+        function dibujarGradiente() {
+            if(trafos.length === 0) return;
+            const gridSize = 8; ctx.globalAlpha = 0.4; 
+            const pUnitario = parseFloat(document.getElementById('pLote').value);
+            const rCond = parseFloat(document.getElementById('cond').value);
+
+            for (let x = 0; x < canvas.width; x += gridSize) {
+                for (let y = 0; y < canvas.height; y += gridSize) {
+                    let minDist = Infinity;
+                    trafos.forEach(t => {
+                        let d = Math.abs(x - t.x) + Math.abs(y - t.y);
+                        if(d < minDist) minDist = d;
+                    });
+
+                    let dist_m = minDist / SCALE;
+                    let numLotesEstimados = Math.max(1, dist_m / 10); 
+                    let pPromedio = numLotesEstimados * pUnitario;
+                    let iPromedio = (pPromedio * 1000) / (1.732 * 380 * 0.9);
+                    
+                    let dvVolts = 1.732 * iPromedio * (dist_m/1000) * rCond * 0.9 * 0.5;
+                    let dvPercent = (dvVolts / 380) * 100;
+                    let ratio = Math.min(dvPercent / 5.0, 1); 
+                    
+                    let r, g, b;
+                    if(ratio < 0.5) {
+                        let lr = ratio * 2;
+                        r = Math.round(0 + lr * 255); g = Math.round(255 - lr * 40); b = Math.round(150 - lr * 150);
+                    } else {
+                        let lr = (ratio - 0.5) * 2;
+                        r = 255; g = Math.round(215 - lr * 215); b = 0;
+                    }
+                    if (ratio >= 1) { r = 255; g = 0; b = 42; }
+                    ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+                    ctx.fillRect(x, y, gridSize, gridSize);
+                }
+            }
+            ctx.globalAlpha = 1.0; 
+        }
+
+        function dibujarPlano() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#02040a'; ctx.fillRect(0,0, canvas.width, canvas.height);
+            ctx.lineWidth = 1;
+            
+            dibujarGradiente();
+
+            let idNum = 1;
+            function drawVisual(startX, startY, cols, rows) {
+                for(let r=0; r<rows; r++) {
+                    for(let c=0; c<cols; c++) {
+                        let x = startX + (c * 50 * SCALE) + PADDING;
+                        let y = startY + (r * 20 * SCALE) + STREET*SCALE;
+                        ctx.strokeStyle = '#005522'; ctx.fillStyle = 'rgba(0, 255, 68, 0.03)';
+                        ctx.fillRect(x, y, 50*SCALE, 20*SCALE); ctx.strokeRect(x, y, 50*SCALE, 20*SCALE);
+                        ctx.fillStyle = '#00ff44'; ctx.font = "bold 12px Consolas"; ctx.textAlign="center";
+                        ctx.fillText(idNum++, x + 25*SCALE, y + 12*SCALE);
+                        ctx.fillStyle = '#fff'; ctx.beginPath();
+                        ctx.arc(c === 0 ? x + 3*SCALE : x + 47*SCALE, y + 10*SCALE, 1.5, 0, Math.PI*2); ctx.fill();
+                    }
+                }
+            }
+            
+            drawVisual(sX[0], sY[0], 2, 5); drawVisual(sX[1], sY[0], 2, 5); drawVisual(sX[2], sY[0], 2, 5); 
+            drawVisual(sX[0], sY[1], 2, 10); 
+            let px = sX[1] + PADDING, py = sY[1] + STREET*SCALE, pw = 100*SCALE, ph = 200*SCALE;
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)'; ctx.strokeStyle = '#2962ff'; ctx.lineWidth = 2;
+            ctx.fillRect(px, py, pw, ph); ctx.strokeRect(px, py, pw, ph);
+            ctx.fillStyle = '#00e5ff'; ctx.fillText("PLAZA", px+pw/2, py+ph/2);
+            drawVisual(sX[2], sY[1], 2, 10); 
+            drawVisual(sX[0], sY[2], 2, 5); drawVisual(sX[1], sY[2], 2, 5); drawVisual(sX[2], sY[2], 2, 5); 
+
+            trafos.forEach(t => {
+                ctx.fillStyle = '#ffaa00'; ctx.beginPath(); ctx.arc(t.x, t.y, 11, 0, Math.PI*2); ctx.fill();
+                ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+                ctx.fillStyle = '#ffffff'; ctx.font = "bold 11px Consolas"; ctx.textAlign = "center";
+                ctx.fillText(t.kva + "kVA", t.x, t.y + 24);
+            });
+        }
+
+        canvas.addEventListener('mousemove', function(e) {
+            const rect = canvas.getBoundingClientRect();
+            const rawX = (e.clientX - rect.left) * (canvas.width / rect.width);
+            const rawY = (e.clientY - rect.top) * (canvas.height / rect.height);
+            
+            let mx = rawX; 
+            let my = rawY;
+
+            let metroX = (mx - PADDING) / SCALE;
+            let metroY = (my - (STREET * SCALE)) / SCALE;
+            coordHud.innerHTML = `X: ${metroX.toFixed(1)} m | Y: ${metroY.toFixed(1)} m`;
+
+            if (trafos.length > 0) {
+                dibujarPlano();
+                
+                let closestT = trafos.reduce((prev, curr) => {
+                    let dPrev = Math.abs(mx - prev.x) + Math.abs(my - prev.y);
+                    let dCurr = Math.abs(mx - curr.x) + Math.abs(my - curr.y);
+                    return dCurr < dPrev ? curr : prev;
+                });
+
+                ctx.setLineDash([5, 5]); ctx.strokeStyle = 'rgba(0, 240, 255, 0.8)'; ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.moveTo(closestT.x, closestT.y);
+                ctx.lineTo(mx, closestT.y); ctx.lineTo(mx, my); ctx.stroke();
+                ctx.setLineDash([]);
+
+                let lotesAdheridos = lotesPuntos.filter(p => {
+                    let distH = Math.abs(p.y - closestT.y);
+                    let enRangoX = (p.x >= Math.min(closestT.x, mx) && p.x <= Math.max(closestT.x, mx));
+                    let distV = Math.abs(p.x - mx);
+                    let enRangoY = (p.y >= Math.min(closestT.y, my) && p.y <= Math.max(closestT.y, my));
+                    return (distH < 25 && enRangoX) || (distV < 25 && enRangoY);
+                });
+
+                const pUnitario = parseFloat(document.getElementById('pLote').value);
+                const rCond = parseFloat(document.getElementById('cond').value);
+                let numLotes = lotesAdheridos.length;
+                let potenciaTramo = numLotes * pUnitario;
+                let distM = (Math.abs(mx - closestT.x) + Math.abs(my - closestT.y)) / SCALE;
+                
+                let corriente = (potenciaTramo * 1000) / (1.732 * 380 * 0.9);
+                let dvVolts = 1.732 * corriente * (distM / 1000) * rCond * 0.9 * 0.5;
+                let dv = (dvVolts / 380) * 100; 
+
+                ctx.fillStyle = 'rgba(0, 240, 255, 0.4)';
+                lotesAdheridos.forEach(l => { ctx.beginPath(); ctx.arc(l.x, l.y, 7, 0, Math.PI*2); ctx.fill(); });
+
+                ctx.strokeStyle = dv > 5 ? '#ff2a2a' : '#00ff66';
+                ctx.beginPath(); ctx.arc(mx, my, 6, 0, Math.PI*2); ctx.stroke();
+
+                document.getElementById('resLotes').innerText = numLotes;
+                document.getElementById('reskW').innerText = potenciaTramo + " kW";
+                document.getElementById('resDist').innerText = distM.toFixed(1) + " m";
+                document.getElementById('resV').innerText = dv.toFixed(2) + " %";
+                document.getElementById('resV').style.color = dv > 5 ? '#ff2a2a' : '#00ff66';
+            }
+        });
+
+        canvas.addEventListener('click', function(e) {
+            if (!modoColocar) return;
+            const rect = canvas.getBoundingClientRect();
+            const clickX = (e.clientX - rect.left) * (canvas.width / rect.width);
+            const clickY = (e.clientY - rect.top) * (canvas.height / rect.height);
+
+            for(let i=0; i<trafos.length; i++) {
+                if(Math.hypot(trafos[i].x - clickX, trafos[i].y - clickY) < 20) {
+                    trafos.splice(i, 1); calcularDatos(); return;
+                }
+            }
+            
+            trafos.push({ x: clickX, y: clickY, kva: parseInt(document.getElementById('trafoKVA').value) });
+            calcularDatos();
+        });
+
+        function toggleColocacion() { 
+            modoColocar = !modoColocar; 
+            btnColocar.classList.toggle('btn-active', modoColocar); 
+            btnColocar.innerText = modoColocar ? "■ CLICK EN EL MAPA PARA INSTALAR" : "1. MODO INSTALACIÓN MANUAL";
+        }
+        
+        function limpiar() { trafos = []; calcularDatos(); }
+
+        function calcularDatos() {
+            document.getElementById('resTrafos').innerText = trafos.length;
+            dibujarPlano(); 
+        }
+
+        initLoteo();
+        dibujarPlano();
+    </script>
+</body>
+</html>
